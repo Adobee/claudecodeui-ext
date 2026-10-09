@@ -18,6 +18,21 @@ const getErrorMessage = (error: unknown) => {
   return String(error);
 };
 
+const normalizePath = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '');
+
+const isAbsolutePath = (value: string): boolean => (
+  value.startsWith('/') || /^[a-zA-Z]:\//.test(value)
+);
+
+const isOutsideProject = (filePath: string, projectPath?: string): boolean => {
+  if (!isAbsolutePath(normalizePath(filePath))) return false;
+  if (!projectPath) return true;
+  const normalizedFilePath = normalizePath(filePath);
+  const normalizedProjectPath = normalizePath(projectPath);
+  return normalizedFilePath !== normalizedProjectPath
+    && !normalizedFilePath.startsWith(`${normalizedProjectPath}/`);
+};
+
 // CodeMirror reports its document with LF line endings whatever the file used,
 // so a CRLF file would look edited from the first keystroke (and stay "edited"
 // after an undo) unless both sides of the comparison are normalised.
@@ -42,6 +57,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   // propagate the identifier.
   const fileProjectId = file.projectId ?? projectPath;
   const filePath = file.path;
+  const workspaceFile = isOutsideProject(filePath, projectPath);
   const fileName = file.name;
   const fileDiffNewString = file.diffInfo?.new_string;
   const fileDiffOldString = file.diffInfo?.old_string;
@@ -98,7 +114,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
           throw new Error('Missing project identifier');
         }
 
-        const response = await api.readFile(fileProjectId, filePath);
+        const response = workspaceFile
+          ? await api.readWorkspaceFile(filePath)
+          : await api.readFile(fileProjectId, filePath);
         // Read through readApiJson so the API's own explanation reaches the
         // pane — a directory, a path outside the project root, a missing file.
         // The bare status showed all of those as an opaque "403 Forbidden".
@@ -122,7 +140,16 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     };
 
     loadFileContent();
-  }, [file.diffInfo, file.name, fileDiffNewString, fileDiffOldString, fileName, filePath, fileProjectId]);
+  }, [
+    file.diffInfo,
+    file.name,
+    fileDiffNewString,
+    fileDiffOldString,
+    fileName,
+    filePath,
+    fileProjectId,
+    workspaceFile,
+  ]);
 
   const handleSave = useCallback(async () => {
     // Preview-only and binary files have no editable text buffer; never write
@@ -142,7 +169,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         throw new Error('Missing project identifier');
       }
 
-      const response = await api.saveFile(fileProjectId, filePath, content);
+      const response = workspaceFile
+        ? await api.saveWorkspaceFile(filePath, content)
+        : await api.saveFile(fileProjectId, filePath, content);
 
       if (!response.ok) {
         const contentType = response.headers.get('content-type');
@@ -180,7 +209,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setSaving(false);
       }
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName]);
+  }, [content, filePath, fileProjectId, previewKind, fileName, workspaceFile]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });

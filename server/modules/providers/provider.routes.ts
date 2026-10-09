@@ -621,7 +621,8 @@ router.get(
   '/:provider/models',
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
-    const models = await providerModelsService.getProviderModels(provider);
+    const forceRefresh = parseOptionalBooleanQuery(req.query.refresh, 'refresh');
+    const models = await providerModelsService.getProviderModels(provider, { forceRefresh });
     res.json(createApiSuccessResponse({ provider, models }));
   }),
 );

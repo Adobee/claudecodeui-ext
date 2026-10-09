@@ -21,7 +21,7 @@ export function createCliApplication(): CliApplication {
   const applicationRoot = findApplicationRoot(getModuleDirectory(import.meta.url));
   const packageMetadataJson = JSON.parse(
     fs.readFileSync(path.join(applicationRoot, 'package.json'), 'utf8'),
-  ) as { version: string; homepage?: string; bugs?: { url?: string } };
+  ) as { version: string; homepage?: string; bugs?: { url?: string }; cloudcliFork?: boolean };
   const packageMetadata: CliPackageMetadata = {
     version: packageMetadataJson.version,
     homepage: packageMetadataJson.homepage,
@@ -70,6 +70,7 @@ export function createCliApplication(): CliApplication {
     output,
     sandboxService,
     getLatestPackageVersion: async () => {
+      if (packageMetadataJson.cloudcliFork) return packageMetadata.version;
       // Yield first so the default `start` command can begin loading the server
       // before this best-effort npm registry check runs.
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -79,6 +80,9 @@ export function createCliApplication(): CliApplication {
       ).trim();
     },
     updateGlobalPackage: () => {
+      if (packageMetadataJson.cloudcliFork) {
+        throw new Error('This fork is maintained at https://github.com/Adobee/claudecodeui-ext on main. Update and deploy from that repository; do not install the upstream npm package.');
+      }
       execSync('npm update -g @cloudcli-ai/cloudcli', { stdio: 'inherit' });
     },
     startServer: async () => {

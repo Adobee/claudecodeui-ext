@@ -93,7 +93,15 @@ export type ProviderModelOption = {
  */
 export type ProviderModelsDefinition = {
   OPTIONS: ProviderModelOption[];
+  /** Native hidden entries retained only to validate existing sessions, never offered for new selections. */
+  HIDDEN_OPTIONS?: ProviderModelOption[];
   DEFAULT: string;
+  /** Discovery health; absent for static providers. Never includes credentials or raw CLI errors. */
+  SYNC?: {
+    source: 'native' | 'cache' | 'fallback';
+    stale: boolean;
+    updatedAt: string | null;
+  };
   /**
    * Reasoning-effort levels a custom entry of this catalog may declare, weakest
    * first; empty for providers without effort support. The Providers service
@@ -1417,6 +1425,12 @@ export type FileTreeServices = {
     suggestions: Array<{ path: string; name: string; type: 'directory' }>;
   }>;
   createWorkspaceFolder(folderPath: string): Promise<{ success: true; path: string }>;
+  readWorkspaceTextFile(filePath: string): Promise<{ content: string; path: string }>;
+  saveWorkspaceTextFile(filePath: string, content: string): Promise<{
+    success: true;
+    path: string;
+    message: string;
+  }>;
   readTextFile(projectId: string, filePath: string): Promise<{ content: string; path: string }>;
   openFile(projectId: string, filePath: string): Promise<{ contentType: string; stream: Readable }>;
   saveTextFile(projectId: string, filePath: string, content: string): Promise<{

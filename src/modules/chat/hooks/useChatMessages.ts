@@ -104,7 +104,7 @@ function appendCompactionRow(
   const text = content.trim();
 
   // The second copy of a summary already folded into a row above.
-  if (text && state.foldedSummaries.has(text)) {
+  if (msg.role === 'assistant' && text && state.foldedSummaries.has(text)) {
     return true;
   }
 
@@ -274,6 +274,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             toolId: msg.toolId,
             toolName: msg.toolName || 'Tool',
             toolInput: msg.toolInput,
+            toolResult: msg.toolResult ?? undefined,
             timestamp: msg.timestamp,
           };
           activity.push(tool);
@@ -355,22 +356,6 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     const taskStatusSource = msg.kind === 'tool_use' && msg.toolId
       ? lastTaskSourceByToolUseId.get(msg.toolId) ?? null
       : null;
-    const cachedProjection = projectionCache.get(msg);
-
-    // A tool-use projection must be rebuilt when a matching result arrives,
-    // even though the original tool-use record itself is unchanged. The same
-    // holds for a subagent container when its live timeline grows, and for a
-    // background launch when a newer task event lands on it.
-    if (
-      cachedProjection?.toolResultSource === toolResultSource
-      && cachedProjection.subagentActivitySource === subagentActivitySource
-      && cachedProjection.taskStatusSource === taskStatusSource
-    ) {
-      converted.push(...cachedProjection.messages);
-      continue;
-    }
-
-    const convertedStart = converted.length;
     const sharedMetadata = {
       displayText: msg.displayText,
       commandName: msg.commandName,
@@ -394,6 +379,20 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     })) {
       continue;
     }
+
+    // Compaction depends on neighboring rows and must run before cached
+    // projections, including acknowledgements cached before a boundary arrived.
+    const cachedProjection = projectionCache.get(msg);
+    if (
+      cachedProjection?.toolResultSource === toolResultSource
+      && cachedProjection.subagentActivitySource === subagentActivitySource
+      && cachedProjection.taskStatusSource === taskStatusSource
+    ) {
+      converted.push(...cachedProjection.messages);
+      continue;
+    }
+
+    const convertedStart = converted.length;
 
     switch (msg.kind) {
       case 'text': {
@@ -448,6 +447,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       }
 
       case 'tool_use': {
+        if (msg.parentToolUseId) break;
         const tr = toolResultSource;
         // A row is a subagent container when the backend attached agent
         // metadata to it. Both providers normalize to that, so no provider or

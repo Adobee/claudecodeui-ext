@@ -30,8 +30,14 @@ export type ProviderModelOption = {
  */
 export type ProviderModelsDefinition = {
   OPTIONS: ProviderModelOption[];
+  HIDDEN_OPTIONS?: ProviderModelOption[];
   DEFAULT: string;
   EFFORT_LEVELS?: string[];
+  SYNC?: {
+    source: 'native' | 'cache' | 'fallback';
+    stale: boolean;
+    updatedAt: string | null;
+  };
 };
 
 /**

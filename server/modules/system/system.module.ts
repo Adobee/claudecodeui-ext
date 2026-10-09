@@ -1,4 +1,6 @@
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import spawn from 'cross-spawn';
 import type { Router } from 'express';
@@ -51,6 +53,7 @@ function runShellCommand(
 export function createSystemModule(options: SystemModuleOptions): Router {
   const systemUpdateService = createSystemUpdateService({
     ...options,
+    isFork: JSON.parse(fs.readFileSync(path.join(options.appRoot, 'package.json'), 'utf8')).cloudcliFork === true,
     homeDirectory: os.homedir(),
     environment: process.env,
     runShellCommand,

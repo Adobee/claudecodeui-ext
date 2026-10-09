@@ -118,6 +118,7 @@ function ChatInterface({
     cyclePermissionMode,
     providerModelCatalog,
     providerModelsLoading,
+    refreshCodexModels,
     providerModelActions,
     selectProviderModel,
     selectProviderEffort,
@@ -549,6 +550,8 @@ function ChatInterface({
           availableModelOptions={currentProviderModelOptions}
           onSelectModel={handleSelectComposerModel}
           modelsLoading={providerModelsLoading}
+          onRefreshModels={provider === 'codex' ? refreshCodexModels : undefined}
+          modelSync={providerModelCatalog[provider]?.SYNC}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}
           isEditingSentMessage={Boolean(editingAnchorId)}

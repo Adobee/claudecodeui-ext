@@ -1,9 +1,12 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import TOML from '@iarna/toml';
 
+import { codexAppServer } from '@/modules/providers/list/codex/codex-app-server.client.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderCurrentActiveModel,
@@ -15,7 +18,10 @@ import {
   readOptionalString,
 } from '@/shared/utils.js';
 
-/** Curated Codex catalog shipped as immutable CloudCLI defaults. */
+/**
+ * Emergency Codex fallback consumed by the adapter when native discovery has
+ * never succeeded. SYNC explicitly labels this catalog as stale, not live.
+ */
 export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -143,17 +149,86 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
   DEFAULT: 'gpt-5.6-sol',
 };
 
-const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml');
+const codexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+const CATALOG_TTL_MS = 5 * 60_000;
+const RETRY_DELAY_MS = 30_000;
 
-/** Provider registry model adapter for Codex predefined models and active config. */
+// A private digest invalidates the cache on account/config/install changes.
+// Never return this digest or the auth/config contents through the API.
+async function catalogEnvironmentKey(): Promise<string> {
+  const hash = createHash('sha256').update(codexHome()).update(process.env.PATH || '');
+  for (const name of ['auth.json', 'config.toml']) {
+    try { hash.update(await readFile(path.join(codexHome(), name))); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      hash.update(`${name}:missing`);
+    }
+  }
+  for (const name of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY']) hash.update(process.env[name] || '');
+  for (const directory of (process.env.PATH || '').split(path.delimiter)) {
+    try {
+      const executable = path.join(directory, process.platform === 'win32' ? 'codex.cmd' : 'codex');
+      await access(executable, constants.X_OK);
+      const target = await realpath(executable);
+      const info = await stat(target);
+      hash.update(`${target}:${info.mtimeMs}:${info.size}:${info.ino}`);
+      break;
+    } catch { /* Continue PATH lookup just as the runtime does. */ }
+  }
+  return hash.digest('hex');
+}
+
+/** Provider registry adapter: native discovery with bounded caching and explicit fallback health. */
 export class CodexProviderModels implements IProviderModels {
-  async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    return CODEX_PREDEFINED_MODELS;
+  private cached?: { key: string; catalog: ProviderModelsDefinition; expiresAt: number };
+  private pending?: { key: string; promise: Promise<ProviderModelsDefinition> };
+
+  constructor(private readonly dependencies: {
+    discover?: () => Promise<ProviderModelsDefinition>;
+    environmentKey?: () => Promise<string>;
+    now?: () => number;
+  } = {}) {}
+
+  async getSupportedModels(options: { forceRefresh?: boolean } = {}): Promise<ProviderModelsDefinition> {
+    const now = this.dependencies.now ?? Date.now;
+    let key: string;
+    try { key = await (this.dependencies.environmentKey ?? catalogEnvironmentKey)(); }
+    catch {
+      // Unknown identity/configuration is not safe grounds for reusing an account's cache.
+      return structuredClone({ ...CODEX_PREDEFINED_MODELS, SYNC: { source: 'fallback', stale: true, updatedAt: null } });
+    }
+    if (this.pending?.key === key) return structuredClone(await this.pending.promise);
+    if (!options.forceRefresh && this.cached?.key === key && this.cached.expiresAt > now()) {
+      return structuredClone(this.cached.catalog);
+    }
+    const previous = this.cached?.key === key ? this.cached.catalog : undefined;
+    const promise = (async () => {
+      let catalog: ProviderModelsDefinition;
+      let expiresAt: number;
+      try {
+        const discovered = await (this.dependencies.discover ?? (() => codexAppServer.listModels()))();
+        catalog = { ...discovered, SYNC: { source: 'native', stale: false, updatedAt: new Date(now()).toISOString() } };
+        expiresAt = now() + CATALOG_TTL_MS;
+      } catch {
+        const lastGood = previous?.SYNC?.updatedAt ? previous : undefined;
+        catalog = {
+          ...(lastGood ?? CODEX_PREDEFINED_MODELS),
+          SYNC: { source: lastGood ? 'cache' : 'fallback', stale: true, updatedAt: lastGood?.SYNC?.updatedAt ?? null },
+        };
+        expiresAt = now() + RETRY_DELAY_MS;
+      }
+      // An older in-flight identity must never overwrite a newer identity's cache.
+      if (this.pending?.key === key) this.cached = { key, catalog, expiresAt };
+      return catalog;
+    })();
+    this.pending = { key, promise };
+    try { return structuredClone(await promise); }
+    finally { if (this.pending?.promise === promise) this.pending = undefined; }
   }
 
   async getCurrentActiveModel(): Promise<ProviderCurrentActiveModel> {
     try {
-      const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
+      const raw = await readFile(path.join(codexHome(), 'config.toml'), 'utf8');
       const parsed = readObjectRecord(TOML.parse(raw));
       const model = readOptionalString(parsed?.model);
       if (!model) {

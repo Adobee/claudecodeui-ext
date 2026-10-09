@@ -242,7 +242,7 @@ function WorkspaceMain({
           onCloseEditor={handleCloseEditor}
           onToggleEditorExpand={handleToggleEditorExpand}
           onUnsavedChangesChange={handleUnsavedChangesChange}
-          projectPath={selectedProject.path}
+          projectPath={selectedProject.fullPath || selectedProject.path}
           fillSpace={activeTab === 'files'}
         />
       </div>

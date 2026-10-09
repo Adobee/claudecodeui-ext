@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-import type { ProviderModelOption } from '@/shared/types';
+import type { ProviderModelOption, ProviderModelsDefinition } from '@/shared/types';
 import { DEFAULT_EFFORT_VALUE } from '@/shared/constants';
 import { useComposerMenuAnchor } from '@/modules/chat/hooks/useComposerMenuAnchor';
 import {
@@ -25,6 +25,8 @@ type ComposerModelMenuProps = {
   modelOptions: ProviderModelOption[];
   onSelectModel: (model: string) => void;
   modelsLoading: boolean;
+  onRefreshModels?: (force?: boolean) => Promise<void>;
+  modelSync?: ProviderModelsDefinition['SYNC'];
 };
 
 /**
@@ -39,10 +41,16 @@ function ComposerModelMenu({
   modelOptions,
   onSelectModel,
   modelsLoading,
+  onRefreshModels,
+  modelSync,
 }: ComposerModelMenuProps) {
   const { t } = useTranslation('chat');
   const [isOpen, setIsOpen] = useState(false);
   const [isModelSectionOpen, setIsModelSectionOpen] = useState(false);
+  // Keep repeated mobile taps from submitting multiple forced refreshes.
+  const [isSyncing, setIsSyncing] = useState(false);
+  // Transport errors are distinct from a successful response containing stale metadata.
+  const [syncFailed, setSyncFailed] = useState(false);
   const close = useCallback(() => setIsOpen(false), []);
   const { triggerRef, menuRef, anchor, updateAnchor } = useComposerMenuAnchor(isOpen, close);
 
@@ -54,7 +62,9 @@ function ComposerModelMenu({
     }
   }, [isOpen]);
 
-  const defaultEffortLabel = t('composer.effortDefault', { defaultValue: 'Default' });
+  const defaultEffortLabel = onRefreshModels
+    ? t('composer.codexFollowConfig', { defaultValue: 'Follow Codex configuration' })
+    : t('composer.effortDefault', { defaultValue: 'Default' });
   const resolvedEffortOptions = useMemo<EffortOption[]>(
     () => (effortOptions.length > 0 ? [{ value: DEFAULT_EFFORT_VALUE }, ...effortOptions] : []),
     [effortOptions],
@@ -69,7 +79,7 @@ function ComposerModelMenu({
 
   const hasEffortSection = resolvedEffortOptions.length > 0;
   const hasModelSection = modelOptions.length > 0 || modelsLoading;
-  if (!hasEffortSection && !hasModelSection) {
+  if (!hasEffortSection && !hasModelSection && !onRefreshModels) {
     return null;
   }
 
@@ -85,6 +95,7 @@ function ComposerModelMenu({
         type="button"
         onClick={() => {
           updateAnchor();
+          if (!isOpen) void onRefreshModels?.().catch(() => setSyncFailed(true));
           setIsOpen((current) => !current);
         }}
         className="flex h-8 max-w-20 shrink-0 items-center gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted sm:max-w-56"
@@ -101,6 +112,30 @@ function ComposerModelMenu({
 
       {isOpen && anchor && createPortal(
         <ComposerMenuSurface anchor={anchor} menuRef={menuRef} ariaLabel={ariaLabel}>
+          {onRefreshModels && (
+            <>
+              <div className="px-3 py-2 text-xs text-muted-foreground" role="status">
+                {syncFailed || modelSync?.stale
+                  ? t('composer.codexSyncStale', { defaultValue: 'Sync unavailable; using cached or fallback models.' })
+                  : modelSync?.updatedAt
+                    ? t('composer.codexSyncedAt', { defaultValue: 'Synced {{time}}', time: new Date(modelSync.updatedAt).toLocaleString() })
+                    : t('composer.codexSyncPending', { defaultValue: 'Model discovery pending' })}
+              </div>
+              <button type="button" disabled={isSyncing} className="w-full px-3 py-2 text-left text-xs disabled:opacity-50"
+                onClick={async () => {
+                  setIsSyncing(true);
+                  setSyncFailed(false);
+                  try { await onRefreshModels(true); }
+                  catch { setSyncFailed(true); }
+                  finally { setIsSyncing(false); }
+                }}>
+                {isSyncing ? t('composer.codexSyncing', { defaultValue: 'Syncing…' }) : t('composer.codexSyncNow', { defaultValue: 'Sync models and reasoning levels' })}
+              </button>
+              {!selectedModelOption && <div className="px-3 py-2 text-xs text-amber-600">{t('composer.codexModelMissing', { defaultValue: 'Current model is not in this catalog; your selection is preserved.' })}</div>}
+              {selectedModelOption?.effort?.default && <div className="px-3 py-2 text-xs text-muted-foreground">{t('composer.codexModelDefault', { defaultValue: 'Model default: {{effort}}. Follow configuration may use a local override.', effort: selectedModelOption.effort.default })}</div>}
+              <ComposerMenuSeparator />
+            </>
+          )}
           {hasEffortSection && (
             <>
               <ComposerMenuHeading>

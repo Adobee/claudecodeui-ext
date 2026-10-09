@@ -16,7 +16,7 @@ const readFile = vi.fn(async () => ({ ok: true, json: async () => ({ content: 'h
 const saveFile = vi.fn(async () => ({ ok: true, json: async () => ({ success: true }) }));
 
 vi.mock('@/shared/api', () => ({
-  api: { readFile, saveFile },
+  api: { readFile, saveFile, readWorkspaceFile: readFile, saveWorkspaceFile: saveFile },
   readApiJson: async (response: { json: () => Promise<unknown> }) => response.json(),
 }));
 

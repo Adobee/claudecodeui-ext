@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-import { APP_VERSION } from '@/shared/constants';
+import { APP_VERSION, APP_IS_FORK } from '@/shared/constants';
 import type { InstallMode, ReleaseInfo } from '@/shared/types';
 
 /**
@@ -56,6 +56,7 @@ export const useVersionCheck = (owner: string, repo: string) => {
   }, []);
 
   useEffect(() => {
+    if (APP_IS_FORK) return;
     const checkVersion = async () => {
       try {
         const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/releases/latest`);

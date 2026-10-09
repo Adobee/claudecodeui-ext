@@ -83,13 +83,18 @@ const mergeProviderModels = (
   custom: CustomProviderModelRecord[],
 ): ProviderModelsDefinition => {
   return {
+    ...predefined,
     OPTIONS: [
       ...predefined.OPTIONS.map((option) => ({ ...option, isCustom: false })),
-      ...custom.map(toCustomProviderModelOption),
+      ...custom.filter((record) => !predefined.OPTIONS.some((option) => option.value === record.modelId))
+        .map(toCustomProviderModelOption),
     ],
     DEFAULT: predefined.DEFAULT,
     // Copied so no caller can mutate the shared capability matrix.
-    EFFORT_LEVELS: [...readCustomModelEffortLevels(provider)],
+    EFFORT_LEVELS: [...new Set([
+      ...readCustomModelEffortLevels(provider),
+      ...(provider === 'codex' ? predefined.OPTIONS.flatMap((option) => option.effort?.values.map((level) => level.value) ?? []) : []),
+    ])],
   };
 };
 
@@ -102,13 +107,16 @@ const normalizeCustomModelInput = (input: CustomProviderModelInput): CustomProvi
 const assertEffortLevelsSupported = (
   provider: LLMProvider,
   input: CustomProviderModelInput,
+  predefined?: ProviderModelsDefinition,
 ): void => {
   const declaredLevels = input.effort?.values ?? [];
   if (declaredLevels.length === 0) {
     return;
   }
 
-  const supportedLevels = readCustomModelEffortLevels(provider);
+  const supportedLevels = [...readCustomModelEffortLevels(provider),
+    ...(provider === 'codex' ? predefined?.OPTIONS.flatMap((option) => option.effort?.values.map((level) => level.value) ?? []) ?? [] : []),
+  ];
   if (supportedLevels.length === 0) {
     throw new AppError(`${provider} models do not support reasoning effort.`, {
       code: 'MODEL_EFFORT_NOT_SUPPORTED',
@@ -140,9 +148,8 @@ const isUniqueConstraintError = (error: unknown): boolean => (
  * Creates the provider model application service used by Providers routes,
  * Commands, and provider runtimes.
  *
- * Curated adapter definitions stay source-controlled and are merged at read
- * time with custom SQLite rows. This deliberately has no predefined-model
- * persistence, memory cache, disk cache, TTL, or provider-native discovery.
+ * Static or natively discovered adapter definitions are merged at read time
+ * with custom SQLite rows. Discovery caching belongs to the provider adapter.
  * Tests inject a small custom-model store through the same boundary.
  */
 export const createProviderModelsService = (dependencies: ProviderModelsServiceDependencies = {}) => {
@@ -150,8 +157,8 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
   const catalog = dependencies.catalog ?? providerModelsDb;
   const sessions = dependencies.sessions ?? sessionsDb;
 
-  const getProviderModels = async (provider: LLMProvider): Promise<ProviderModelsDefinition> => {
-    const predefined = await resolveProvider(provider).models.getSupportedModels();
+  const getProviderModels = async (provider: LLMProvider, options?: { forceRefresh?: boolean }): Promise<ProviderModelsDefinition> => {
+    const predefined = await resolveProvider(provider).models.getSupportedModels(options);
     return mergeProviderModels(provider, predefined, catalog.listCustomProviderModels(provider));
   };
 
@@ -204,7 +211,7 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     const predefined = await resolveProvider(provider).models.getSupportedModels();
     const normalized = normalizeCustomModelInput(input);
     assertModelIdAvailable(provider, predefined, normalized.id);
-    assertEffortLevelsSupported(provider, normalized);
+    assertEffortLevelsSupported(provider, normalized, predefined);
 
     try {
       const created = catalog.createCustomProviderModel(provider, normalized);
@@ -232,7 +239,7 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     readCustomModel(provider, recordId);
     const normalized = normalizeCustomModelInput(input);
     assertModelIdAvailable(provider, predefined, normalized.id, recordId);
-    assertEffortLevelsSupported(provider, normalized);
+    assertEffortLevelsSupported(provider, normalized, predefined);
 
     try {
       const updated = catalog.updateCustomProviderModel(provider, recordId, normalized);

@@ -9,12 +9,13 @@ import spawn from 'cross-spawn';
 
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
-import { getModuleDirectory } from '@/shared/utils.js';
+import { findApplicationRoot, getModuleDirectory } from '@/shared/utils.js';
 
 import { getBrowserUseRuntime } from './browser-use-runtime.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = getModuleDirectory(import.meta.url);
+const APP_ROOT = findApplicationRoot(__dirname);
 const MAX_SESSIONS_PER_OWNER = Number.parseInt(process.env.CLOUDCLI_BROWSER_USE_MAX_SESSIONS_PER_OWNER || '3', 10);
 const SESSION_TTL_MS = Number.parseInt(process.env.CLOUDCLI_BROWSER_USE_SESSION_TTL_MS || String(30 * 60 * 1000), 10);
 const BROWSER_USE_SETTINGS_KEY = 'browser_use_settings';
@@ -82,6 +83,15 @@ const DEFAULT_SETTINGS: BrowserUseSettings = {
 };
 const AGENT_OWNER_ID = 'agent';
 const PROFILE_ROOT = path.join(os.homedir(), '.cloudcli', 'browser-use', 'profiles');
+const USER_BROWSER_LIBRARY_PATH = path.join(
+  os.homedir(),
+  '.cloudcli',
+  'browser-use',
+  'system-libs',
+  'root',
+  'usr',
+  'lib64',
+);
 const MCP_SERVER_NAME = 'cloudcli-browser';
 const LEGACY_MCP_SERVER_NAMES = ['cloudcli-browser-use'];
 const RUNTIME_READINESS_CACHE_TTL_MS = 30_000;
@@ -192,6 +202,20 @@ function getProfilePath(profileName: string): string {
   return path.join(PROFILE_ROOT, safeName);
 }
 
+function getBrowserLaunchEnvironment(): NodeJS.ProcessEnv | undefined {
+  if (!fs.existsSync(USER_BROWSER_LIBRARY_PATH)) {
+    return undefined;
+  }
+
+  const existingLibraryPath = process.env.LD_LIBRARY_PATH;
+  return {
+    ...process.env,
+    LD_LIBRARY_PATH: existingLibraryPath
+      ? `${USER_BROWSER_LIBRARY_PATH}${path.delimiter}${existingLibraryPath}`
+      : USER_BROWSER_LIBRARY_PATH,
+  };
+}
+
 function probeRuntime(): RuntimeProbe {
   const playwright = getPlaywright();
   const readiness: RuntimeProbe = {
@@ -244,7 +268,10 @@ const INSTALL_COMMAND_TIMEOUT_MS = Number.parseInt(
 function runCommand(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: process.cwd(),
+      // Service managers may launch CloudCLI from `/` or another unrelated
+      // directory. Install beside the running application so npm can find its
+      // package manifest and Node can resolve the installed Playwright module.
+      cwd: APP_ROOT,
       env: process.env,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -541,9 +568,11 @@ export const browserUseService = {
     let browser: any | undefined;
     let context: any | undefined;
     let page: any;
+    const launchEnvironment = getBrowserLaunchEnvironment();
     const launchOptions = {
       headless: true,
       args: ['--disable-dev-shm-usage'],
+      ...(launchEnvironment ? { env: launchEnvironment } : {}),
     };
     const contextOptions = {
       viewport: { width: 1440, height: 900 },

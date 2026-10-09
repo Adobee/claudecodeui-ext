@@ -161,6 +161,14 @@
     }
   },
   "composer": {
+    "codexFollowConfig": "Follow Codex configuration",
+    "codexSyncStale": "Sync unavailable; using cached or fallback models.",
+    "codexSyncedAt": "Synced {{time}}",
+    "codexSyncPending": "Model discovery pending",
+    "codexSyncing": "Syncing…",
+    "codexSyncNow": "Sync models and reasoning levels",
+    "codexModelMissing": "Current model is not in this catalog; your selection is preserved.",
+    "codexModelDefault": "Model default: {{effort}}. Follow configuration may use a local override.",
     "reasoning": "Reasoning",
     "model": "Model",
     "effortDefault": "Default",

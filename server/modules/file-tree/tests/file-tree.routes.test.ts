@@ -16,6 +16,8 @@ function createFakeServices(overrides: Partial<FileTreeServices> = {}): FileTree
   return {
     browseWorkspace: unexpectedOperation,
     createWorkspaceFolder: unexpectedOperation,
+    readWorkspaceTextFile: unexpectedOperation,
+    saveWorkspaceTextFile: unexpectedOperation,
     readTextFile: unexpectedOperation,
     openFile: unexpectedOperation,
     saveTextFile: unexpectedOperation,
@@ -73,6 +75,28 @@ test('project files route uses the File Tree API namespace and forwards the proj
   });
 
   assert.deepEqual(inputs, [['project-1', { respectGitignore: false }]]);
+});
+
+test('workspace file route forwards an absolute path without a project id', async () => {
+  const inputs: string[] = [];
+  const services = createFakeServices({
+    readWorkspaceTextFile: async (filePath) => {
+      inputs.push(filePath);
+      return { content: 'row', path: filePath };
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const filePath = '/workspace/reports/review.tsv';
+    const response = await fetch(
+      `${baseUrl}/api/file-tree/workspace/file?filePath=${encodeURIComponent(filePath)}`,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json() as { content: string };
+    assert.equal(body.content, 'row');
+  });
+
+  assert.deepEqual(inputs, ['/workspace/reports/review.tsv']);
 });
 
 test('project files route requests gitignore filtering when explicitly enabled', async () => {

@@ -27,7 +27,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      __APP_VERSION__: JSON.stringify(pkg.version)
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __IS_FORK__: JSON.stringify(pkg.cloudcliFork === true)
     },
     resolve: {
       alias: {

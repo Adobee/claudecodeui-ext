@@ -5,6 +5,17 @@ import { createSystemUpdateService } from '../system.service.js';
 
 type SystemUpdateDependencies = Parameters<typeof createSystemUpdateService>[0];
 
+test('fork installations never invoke upstream installers or switch branches', async () => {
+  let called = false;
+  const service = createSystemUpdateService(createDependencies({ isFork: true,
+    runShellCommand: async () => { called = true; throw new Error('must not execute'); },
+  }));
+  const result = await service.updateSystem();
+  assert.equal(result.success, false);
+  assert.equal(called, false);
+  assert.match(result.error!, /Adobee\/claudecodeui-ext/);
+});
+
 function createDependencies(
   overrides: Partial<SystemUpdateDependencies> = {},
 ): SystemUpdateDependencies {

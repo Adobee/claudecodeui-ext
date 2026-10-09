@@ -1,8 +1,10 @@
 {
-  "name": "@cloudcli-ai/cloudcli",
+  "name": "@adobee/claudecodeui-ext",
+  "private": true,
+  "cloudcliFork": true,
   "version": "1.37.3",
   "productName": "CloudCLI",
-  "description": "A web-based UI for Claude Code CLI",
+  "description": "CloudCLI fork with native Codex model and reasoning-effort discovery",
   "type": "module",
   "main": "dist-server/server/index.js",
   "bin": {
@@ -18,13 +20,13 @@
     "scripts/",
     "README.md"
   ],
-  "homepage": "https://cloudcli.ai",
+  "homepage": "https://github.com/Adobee/claudecodeui-ext",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/siteboon/claudecodeui.git"
+    "url": "git+https://github.com/Adobee/claudecodeui-ext.git"
   },
   "bugs": {
-    "url": "https://github.com/siteboon/claudecodeui/issues"
+    "url": "https://github.com/Adobee/claudecodeui-ext/issues"
   },
   "scripts": {
     "dev": "concurrently --kill-others \"npm run server:dev\" \"npm run client\"",
@@ -151,8 +153,7 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@iarna/toml": "^2.2.5",
     "@octokit/rest": "^22.0.0",
-    "@openai/codex": "0.156.1",
-    "@openai/codex-sdk": "^0.156.0",
+    "@openai/codex-sdk": "0.156.0",
     "@replit/codemirror-minimap": "^0.5.2",
     "@tailwindcss/typography": "^0.5.16",
     "@uiw/react-codemirror": "^4.23.13",

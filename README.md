@@ -1,3 +1,34 @@
+## claudecodeui-ext
+
+An independently maintained fork of [CloudCLI / Claude Code UI](https://github.com/siteboon/claudecodeui), focused on portable Codex improvements. The original AGPL-3.0-or-later license and upstream attribution are retained.
+
+### Fork changes
+
+- Discover Codex models, default models, hidden-model metadata, and per-model reasoning levels from the installed CLI's `app-server` `model/list` interface.
+- Refresh the catalog when the model menu opens or the window regains focus; five-minute server caching, manual refresh, and explicit stale/fallback status prevent silent drift. Account, configuration, and CLI installation changes invalidate the cache.
+- Use the system `codex` executable consistently for conversations, login checks, and app-server operations. The SDK is pinned; install and authenticate Codex separately and make it available on the server's `PATH`.
+- Preserve custom models and existing hidden-model sessions; validate reasoning levels against discovered metadata without assuming a fixed set of levels.
+- Fix workspace file editing, compaction-history loading, mobile layout compatibility, browser runtime setup, and executable permissions in server builds.
+- Remove the sidebar's Report Issue / Join Community buttons and disable upstream self-updates that would overwrite this fork.
+
+Conversation streaming still uses the Codex SDK / `codex exec`. Model discovery does not migrate conversations to app-server and does not add native Goal or Plan support.
+
+### Install and update this fork
+
+```bash
+git clone https://github.com/Adobee/claudecodeui-ext.git
+cd claudecodeui-ext
+npm ci
+npm run build
+npm run server
+```
+
+To update, pull this repository's `main`, run `npm ci` and `npm run build`, then restart your server. Do not use the upstream npm installation/update commands below for this fork. Local credentials, session databases, and deployment configuration are not included. Keep this server behind authentication; file and agent features operate with the server user's permissions.
+
+Report fork-specific issues at [Adobee/claudecodeui-ext](https://github.com/Adobee/claudecodeui-ext/issues). The remainder of this document is the original upstream documentation.
+
+---
+
 <div align="center">
  <img src="public/logo.svg" alt="CloudCLI UI" width="64" height="64">
  <h1>Cloud CLI (aka Claude Code UI)</h1>

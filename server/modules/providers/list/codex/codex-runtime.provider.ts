@@ -14,15 +14,16 @@
 import { Codex } from '@openai/codex-sdk';
 import type { ModelReasoningEffort, Thread, ThreadOptions } from '@openai/codex-sdk';
 
+import type { AnyRecord, IProviderRuntime, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
 import {
   appendFilesInputTag,
   buildCodexInputItems,
   normalizeImageDescriptors,
   createCompleteMessage,
   createNormalizedMessage,
+  AppError,
 } from '@/shared/index.js';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
-import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
 
 type ActiveCodexSession = {
   thread: Thread;
@@ -283,14 +284,13 @@ async function queryCodex(
   const workingDirectory = cwd || projectPath || process.cwd();
   const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
   const catalog = await context.getProviderModels();
-  const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
+  const selectedModel = [...catalog.OPTIONS, ...(catalog.HIDDEN_OPTIONS ?? [])]
+    .find((option) => option.value === (resolvedModel || catalog.DEFAULT)) || null;
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
   const resolvedEffort = typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
     ? effort as ModelReasoningEffort
     : undefined;
 
-  let codex: Codex;
-  let thread: Thread;
   // Provider-native thread id (starts as the resume id, or is captured from
   // the stream for brand-new sessions).
   let capturedSessionId = providerSessionId;
@@ -308,7 +308,14 @@ async function queryCodex(
   const sessionKey = () => sessionId || capturedSessionId || null;
 
   try {
-    codex = new Codex();
+    if (typeof effort === 'string' && effort !== 'default' && !allowedEfforts.includes(effort)) {
+      throw new AppError(`Reasoning effort "${effort}" is not available for "${resolvedModel}". Sync models and choose a supported level.`, {
+        code: 'INVALID_MODEL_EFFORT', statusCode: 400,
+      });
+    }
+    // Let Node resolve the installed CLI through the service PATH on each run.
+    // Do not use the SDK's bundled binary or retain its npm installation path.
+    const codex = new Codex({ codexPathOverride: 'codex' });
 
     const threadOptions: ThreadOptions = {
       workingDirectory,
@@ -316,14 +323,12 @@ async function queryCodex(
       sandboxMode,
       approvalPolicy,
       model: resolvedModel,
-      modelReasoningEffort: resolvedEffort,
+      modelReasoningEffort: resolvedEffort as ModelReasoningEffort | undefined,
     };
 
-    if (providerSessionId) {
-      thread = codex.resumeThread(providerSessionId, threadOptions);
-    } else {
-      thread = codex.startThread(threadOptions);
-    }
+    const thread = providerSessionId
+      ? codex.resumeThread(providerSessionId, threadOptions)
+      : codex.startThread(threadOptions);
 
     const registerSession = (id: string | null) => {
       if (!id) {
@@ -468,8 +473,8 @@ async function queryCodex(
       if (!errorSurfaced) {
         // Check if Codex SDK is available for a clearer error message
         const installed = await context.isProviderInstalled();
-        const errorContent = !installed
-          ? 'Codex CLI is not configured. Please set up authentication first.'
+        const errorContent = (runError as NodeJS.ErrnoException).code === 'ENOENT' || !installed
+          ? 'Codex CLI was not found on the CloudCLI server PATH. Install Codex and ensure the server PATH includes it.'
           : runError.message;
 
         sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
@@ -523,8 +528,8 @@ function abortCodexSession(sessionId: string) {
   return true;
 }
 
-/** Used by the providers module's CodexProvider to run and abort SDK turns. */
-export const codexRuntime = {
+// Consumed by CodexProvider to run and abort SDK-backed system CLI sessions.
+export const codexRuntime: IProviderRuntime = {
   run: queryCodex,
   abort: abortCodexSession,
 };

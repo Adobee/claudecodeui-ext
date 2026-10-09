@@ -133,6 +133,28 @@ describe('compaction rows', () => {
 });
 
 describe('compaction rows and the projection cache', () => {
+  it('drops a cached acknowledgement when the boundary arrives later', () => {
+    const acknowledgement = row({ content: 'Compacted' });
+    expect(normalizedToChatMessages([acknowledgement])).toHaveLength(1);
+    expect(normalizedToChatMessages([acknowledgement, boundary()]))
+      .toMatchObject([{ compact: { phase: 'done' } }]);
+  });
+
+  it('drops a cached unflagged summary after its flagged copy arrives', () => {
+    const loose = row({ content: 'The summary body' });
+    normalizedToChatMessages([loose]);
+    expect(normalizedToChatMessages([boundary(), summary(), loose]))
+      .toMatchObject([{ compactSummary: 'The summary body' }]);
+  });
+
+  it('preserves a user echo after the folded summary, including on cached renders', () => {
+    const rows = [boundary(), summary(), row({ role: 'user', content: 'The summary body' })];
+    for (let pass = 0; pass < 2; pass += 1) {
+      expect(normalizedToChatMessages(rows).map(message => message.type))
+        .toEqual(['assistant', 'user']);
+    }
+  });
+
   it('does not mutate the row it folds into, since that row can be shared', () => {
     const boundaryRow = boundary();
     const first = normalizedToChatMessages([boundaryRow]);

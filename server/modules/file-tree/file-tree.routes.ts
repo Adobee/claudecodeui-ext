@@ -125,6 +125,23 @@ export function createFileTreeRouter(
     response.json(await services.createWorkspaceFolder(folderPath));
   }, logger));
 
+  router.get('/workspace/file', createRouteHandler(async (request, response) => {
+    const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
+    response.json(await services.readWorkspaceTextFile(filePath));
+  }, logger));
+
+  router.put('/workspace/file', createRouteHandler(async (request, response) => {
+    const body = readBody(request);
+    const filePath = readRequiredString(body.filePath, 'filePath', 'Invalid file path');
+    if (typeof body.content !== 'string') {
+      throw new AppError('Content must be a string', {
+        code: 'INVALID_FILE_CONTENT',
+        statusCode: 400,
+      });
+    }
+    response.json(await services.saveWorkspaceTextFile(filePath, body.content));
+  }, logger));
+
   router.get('/projects/:projectId/file', createRouteHandler(async (request, response) => {
     const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
     response.json(await services.readTextFile(readProjectId(request), filePath));

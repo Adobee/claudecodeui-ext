@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import readline from 'node:readline';
 
 import { AppError } from '@/shared/utils.js';
+import type { ProviderModelOption, ProviderModelsDefinition } from '@/shared/types.js';
 
 /**
  * Minimal JSON-RPC client for `codex app-server`.
@@ -43,25 +43,6 @@ export type CodexThreadFork = {
 };
 
 /**
- * Resolves the `codex` launcher shipped in node_modules.
- *
- * Deliberately not the `codex` on PATH: a machine can have a second, older
- * install, and the protocol this speaks is only guaranteed against the
- * version this package depends on.
- */
-function resolveCodexLauncher(): string {
-  const require_ = createRequire(import.meta.url);
-  try {
-    return require_.resolve('@openai/codex/bin/codex.js');
-  } catch {
-    throw new AppError('The Codex CLI package is not installed, so Codex conversations cannot be branched.', {
-      code: 'CODEX_APP_SERVER_UNAVAILABLE',
-      statusCode: 501,
-    });
-  }
-}
-
-/**
  * Runs one exchange against a freshly spawned `codex app-server`.
  *
  * A process per operation rather than a pooled long-lived one: the handshake
@@ -72,9 +53,10 @@ function resolveCodexLauncher(): string {
  */
 async function withAppServer<T>(
   run: (call: (method: string, params: unknown) => Promise<unknown>) => Promise<T>,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  const launcher = resolveCodexLauncher();
-  const child = spawn(process.execPath, [launcher, 'app-server'], {
+  // Forks and streamed runs must use the same system installation of Codex.
+  const child = spawn('codex', ['app-server'], {
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -118,6 +100,11 @@ async function withAppServer<T>(
     }
     pending.clear();
   };
+  // Bound the entire exchange, not just each page of a potentially large catalog.
+  const deadline = setTimeout(() => {
+    failPending('Codex app-server operation timed out');
+    child.kill();
+  }, timeoutMs);
 
   child.on('error', (error) => failPending(error.message));
   child.on('exit', (code, signal) => {
@@ -144,11 +131,11 @@ async function withAppServer<T>(
       const id = nextRequestId++;
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new AppError(`Codex app-server did not answer "${method}" within ${REQUEST_TIMEOUT_MS}ms.`, {
+        reject(new AppError(`Codex app-server did not answer "${method}" within ${timeoutMs}ms.`, {
           code: 'CODEX_APP_SERVER_TIMEOUT',
           statusCode: 504,
         }));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
 
       pending.set(id, (response) => {
         clearTimeout(timer);
@@ -186,12 +173,62 @@ async function withAppServer<T>(
     }
     throw error;
   } finally {
+    clearTimeout(deadline);
     reader.close();
     child.kill();
   }
 }
 
 export const codexAppServer = {
+  /** Used by the Codex model adapter; only lists metadata, never opens a thread. */
+  async listModels(): Promise<ProviderModelsDefinition> {
+    return withAppServer(async (call) => {
+      const options = new Map<string, ProviderModelOption>();
+      const hiddenOptions = new Map<string, ProviderModelOption>();
+      const cursors = new Set<string>();
+      let cursor: string | undefined;
+      let defaultModel = '';
+      do {
+        const response = await call('model/list', {
+          limit: 100, includeHidden: true, ...(cursor ? { cursor } : {}),
+        }) as { data?: unknown; nextCursor?: unknown } | undefined;
+        if (!Array.isArray(response?.data)) throw new Error('Invalid Codex model catalog');
+        for (const raw of response.data) {
+          if (!raw || typeof raw !== 'object') throw new Error('Invalid Codex model');
+          if (typeof raw.model !== 'string' || !raw.model.trim()) throw new Error('Invalid Codex model ID');
+          if (!Array.isArray(raw.supportedReasoningEfforts)) throw new Error('Invalid Codex effort catalog');
+          const efforts = new Map<string, { value: string; description?: string }>();
+          for (const entry of raw.supportedReasoningEfforts) {
+            if (!entry || typeof entry.reasoningEffort !== 'string' || !/^[a-z][a-z0-9_-]*$/.test(entry.reasoningEffort)) {
+              throw new Error('Invalid Codex effort');
+            }
+            efforts.set(entry.reasoningEffort, {
+              value: entry.reasoningEffort,
+              ...(typeof entry.description === 'string' ? { description: entry.description } : {}),
+            });
+          }
+          (raw.hidden === true ? hiddenOptions : options).set(raw.model, {
+            value: raw.model,
+            label: typeof raw.displayName === 'string' ? raw.displayName : raw.model,
+            ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
+            ...(efforts.size ? { effort: {
+              ...(efforts.has(raw.defaultReasoningEffort) ? { default: raw.defaultReasoningEffort } : {}),
+              values: [...efforts.values()],
+            } } : {}),
+          });
+          if (raw.isDefault === true && raw.hidden !== true) defaultModel = raw.model;
+        }
+        if (response.nextCursor != null && typeof response.nextCursor !== 'string') {
+          throw new Error('Invalid Codex model cursor');
+        }
+        cursor = response.nextCursor || undefined;
+        if (cursor && (cursors.has(cursor) || cursors.size >= 20)) throw new Error('Invalid Codex model pagination');
+        if (cursor) cursors.add(cursor);
+      } while (cursor);
+      if (!options.size) throw new Error('Empty Codex model catalog');
+      return { OPTIONS: [...options.values()], HIDDEN_OPTIONS: [...hiddenOptions.values()], DEFAULT: defaultModel || [...options.keys()][0] };
+    }, 10_000);
+  },
   /**
    * Copies a thread into a new one that ends at `lastTurnId`, or copies the
    * whole thread when it is omitted.

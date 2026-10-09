@@ -293,12 +293,16 @@ export const api = {
   // Workspace file tree
   readFile: (projectId: string, filePath: string) =>
     get(`/api/file-tree/projects/${projectId}/file${query({ filePath })}`),
+  readWorkspaceFile: (filePath: string) =>
+    get(`/api/file-tree/workspace/file${query({ filePath })}`),
   // Raw bytes for a workspace file. The endpoint requires the auth header, so
   // media call sites fetch a blob through here instead of using a bare `src`.
   readFileBlob: (projectId: string, filePath: string, options: ApiRequestOptions = {}) =>
     get(fileContentPath(projectId, filePath), options),
   saveFile: (projectId: string, filePath: string, content: string) =>
     put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
+  saveWorkspaceFile: (filePath: string, content: string) =>
+    put('/api/file-tree/workspace/file', { filePath, content }),
   getFiles: (projectId: string, options: ApiRequestOptions = {}) =>
     get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true })}`, options),
 
@@ -409,7 +413,7 @@ export const api = {
       get(`/api/providers/${encodeURIComponent(provider)}/auth/status`),
     claudeSettingsPermissions: () => get('/api/providers/claude/settings-permissions'),
 
-    models: (provider: string) => get(`/api/providers/${provider}/models`),
+    models: (provider: string, forceRefresh = false) => get(`/api/providers/${provider}/models${forceRefresh ? '?refresh=true' : ''}`),
     createModel: (provider: string, input: unknown) =>
       post(`/api/providers/${provider}/models`, input),
     updateModel: (provider: string, recordId: string | number, input: unknown) =>

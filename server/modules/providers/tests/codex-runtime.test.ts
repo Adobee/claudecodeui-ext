@@ -1,13 +1,121 @@
 import assert from 'node:assert/strict';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { Codex } from '@openai/codex-sdk';
 import type { Thread, ThreadOptions } from '@openai/codex-sdk';
 
+import { CodexProviderAuth } from '@/modules/providers/list/codex/codex-auth.provider.js';
 import { codexRuntime } from '@/modules/providers/list/codex/codex-runtime.provider.js';
-import type { ProviderRuntimeContext } from '@/shared/index.js';
+import type { NormalizedMessage, ProviderRuntimeContext } from '@/shared/types.js';
+import { createNormalizedMessage } from '@/shared/utils.js';
 
+const context: ProviderRuntimeContext = {
+  resolveProviderSessionId: () => null,
+  resolveResumeModel: async () => 'test-model',
+  getProviderModels: async () => ({ OPTIONS: [], DEFAULT: 'test-model' }),
+  normalizeMessage: (raw) => {
+    const event = raw as { message?: { content: string } };
+    return event.message ? [createNormalizedMessage({ kind: 'text', content: event.message.content, provider: 'codex' })] : [];
+  },
+  isProviderInstalled: async () => true,
+};
+
+test('runtime rejects unsupported effort rather than silently dropping the selection', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const messages: NormalizedMessage[] = [];
+  await codexRuntime.run('must not start', { effort: 'ultra', model: 'small' }, {
+    isWebSocketWriter: true, send: (message) => { messages.push(message as NormalizedMessage); },
+  }, { ...context, resolveResumeModel: async () => 'small', getProviderModels: async () => ({
+    DEFAULT: 'small', OPTIONS: [{ value: 'small', label: 'Small', effort: { values: [{ value: 'low' }] } }],
+  }) });
+  assert.match(String(messages.find((m) => m.kind === 'error')?.content), /ultra.*not available.*small/);
+  assert.equal(messages.find((m) => m.kind === 'complete')?.exitCode, 1);
+});
+
+test('Codex uses the current PATH executable for each turn, including after a PATH change', {
+  skip: process.platform === 'win32',
+}, async (t) => {
+  const previousPath = process.env.PATH;
+  t.after(() => { process.env.PATH = previousPath; });
+
+  for (const marker of ['first-install', 'second-install']) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'cloudcli-codex-path-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const executable = path.join(directory, 'codex');
+    await writeFile(executable, `#!${process.execPath}
+if (process.argv.includes('--version')) {
+  console.log('codex-cli test');
+} else {
+  let prompt = '';
+  process.stdin.on('data', chunk => { prompt += chunk; });
+  process.stdin.on('end', () => {
+    console.log(JSON.stringify({ type: 'thread.started', thread_id: '${marker}' }));
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'agent_message', text: JSON.stringify({ marker: '${marker}', args: process.argv.slice(2), prompt })
+    } }));
+    console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }));
+  });
+}
+`);
+    await chmod(executable, 0o755);
+    process.env.PATH = directory;
+    const messages: NormalizedMessage[] = [];
+    await codexRuntime.run('system CLI probe', { cwd: directory, effort: 'future-level' }, {
+      isWebSocketWriter: true,
+      send: (message) => { messages.push(message as NormalizedMessage); },
+    }, { ...context, getProviderModels: async () => ({
+      DEFAULT: 'test-model', OPTIONS: [], HIDDEN_OPTIONS: [{ value: 'test-model', label: 'Test', effort: { values: [{ value: 'future-level' }] } }],
+    }) });
+    const reply = messages.find((message) => message.kind === 'text');
+    assert.ok(reply, JSON.stringify(messages));
+    const captured = JSON.parse(String(reply.content));
+    assert.equal(captured.marker, marker);
+    assert.equal(captured.prompt, 'system CLI probe');
+    assert.deepEqual(captured.args.slice(0, 2), ['exec', '--experimental-json']);
+    assert.ok(captured.args.includes('test-model'));
+    assert.ok(captured.args.includes('model_reasoning_effort="future-level"'));
+    assert.ok(captured.args.includes('approval_policy="on-request"'));
+    assert.equal(captured.args.includes('approval_policy="untrusted"'), false);
+    assert.equal(messages.find((message) => message.kind === 'complete')?.exitCode, 0);
+    assert.equal((await new CodexProviderAuth().getStatus()).installed, true);
+  }
+});
+
+test('missing system Codex reports a PATH error without falling back to the SDK binary', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'cloudcli-codex-missing-'));
+  const previousPath = process.env.PATH;
+  t.after(async () => {
+    process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  });
+  process.env.PATH = directory;
+  t.mock.method(console, 'error', () => {});
+  const messages: NormalizedMessage[] = [];
+  await codexRuntime.run('must not reach bundled Codex', { cwd: directory }, {
+    isWebSocketWriter: true,
+    send: (message) => { messages.push(message as NormalizedMessage); },
+  }, context);
+  assert.match(String(messages.find((message) => message.kind === 'error')?.content), /server PATH/);
+  assert.equal(messages.find((message) => message.kind === 'complete')?.exitCode, 1);
+  assert.equal((await new CodexProviderAuth().getStatus()).installed, false);
+});
+
+test('a failing Codex version check does not report installed', { skip: process.platform === 'win32' }, async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'cloudcli-codex-broken-'));
+  const previousPath = process.env.PATH;
+  t.after(async () => {
+    process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  });
+  const executable = path.join(directory, 'codex');
+  await writeFile(executable, `#!${process.execPath}\nprocess.exit(1);\n`);
+  await chmod(executable, 0o755);
+  process.env.PATH = directory;
+  assert.equal((await new CodexProviderAuth().getStatus()).installed, false);
+});
 for (const resumed of [false, true]) {
   for (const permissionMode of [undefined, 'default', 'unknown', 'acceptEdits', 'bypassPermissions']) {
     test(`Codex ${resumed ? 'resumes' : 'starts'} with supported permissions (${permissionMode ?? 'omitted'})`, async (t) => {

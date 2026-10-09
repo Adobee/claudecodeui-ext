@@ -10,6 +10,7 @@ const NEXT = 'dist-server.next';
 const LIVE = 'dist-server';
 const OLD = 'dist-server.old';
 const ENTRY = 'server/index.js';
+const CLI_ENTRY = 'server/modules/cli/cli.js';
 
 const mode = process.argv[2] ?? 'promote';
 
@@ -33,6 +34,17 @@ if (!fs.existsSync(`${NEXT}/${ENTRY}`)) {
   console.error(`promote-dist-server: ${NEXT}/${ENTRY} is missing; leaving the current ${LIVE} untouched.`);
   process.exit(1);
 }
+
+if (!fs.existsSync(`${NEXT}/${CLI_ENTRY}`)) {
+  console.error(`promote-dist-server: ${NEXT}/${CLI_ENTRY} is missing; leaving the current ${LIVE} untouched.`);
+  process.exit(1);
+}
+
+// npm exposes this file through node_modules/.bin/cloudcli. TypeScript creates
+// build outputs using the caller's umask, which can leave the CLI at 0600 and
+// make a hot-deployed runtime impossible to restart. Normalize it before the
+// staged build is promoted so rsync/package consumers retain an executable CLI.
+fs.chmodSync(`${NEXT}/${CLI_ENTRY}`, 0o755);
 
 fs.rmSync(OLD, { recursive: true, force: true });
 if (fs.existsSync(LIVE)) {

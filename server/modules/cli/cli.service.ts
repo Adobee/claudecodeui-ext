@@ -212,7 +212,7 @@ export function createCliService(dependencies: CliServiceDependencies): CliAppli
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       dependencies.output.error(`${terminalTextStyles.error('[ERROR]')} Update failed: ${message}`);
-      dependencies.output.log(`${terminalTextStyles.tip('[TIP]')} Try running manually: npm update -g @cloudcli-ai/cloudcli`);
+      dependencies.output.log(`${terminalTextStyles.tip('[TIP]')} See the installation and update instructions at ${dependencies.packageMetadata.homepage || 'https://cloudcli.ai'}`);
     }
   };
 

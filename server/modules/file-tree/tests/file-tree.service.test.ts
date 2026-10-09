@@ -351,6 +351,55 @@ test('readTextFile rejects traversal before invoking the filesystem adapter', as
   assert.deepEqual(readPaths, []);
 });
 
+test('readWorkspaceTextFile reads a validated absolute path outside the selected project', async () => {
+  const projectRoot = path.resolve('file-tree-test-project');
+  const workspaceFile = path.resolve('workspace-reports', 'review.tsv');
+  const readPaths: string[] = [];
+  const fileSystem = createFakeFileSystem({
+    readTextFile: async (filePath) => {
+      readPaths.push(filePath);
+      return 'row';
+    },
+  });
+  const dependencies = createDependencies(fileSystem, projectRoot);
+  dependencies.workspace.validatePath = async (candidatePath) => ({
+    valid: candidatePath === workspaceFile,
+    resolvedPath: candidatePath,
+  });
+  const service = createFileTreeService(dependencies);
+
+  assert.deepEqual(await service.readWorkspaceTextFile(workspaceFile), {
+    content: 'row',
+    path: workspaceFile,
+  });
+  assert.deepEqual(readPaths, [workspaceFile]);
+});
+
+test('readWorkspaceTextFile rejects paths denied by the workspace policy', async () => {
+  const projectRoot = path.resolve('file-tree-test-project');
+  const readPaths: string[] = [];
+  const fileSystem = createFakeFileSystem({
+    readTextFile: async (filePath) => {
+      readPaths.push(filePath);
+      return 'should not be read';
+    },
+  });
+  const dependencies = createDependencies(fileSystem, projectRoot);
+  dependencies.workspace.validatePath = async () => ({
+    valid: false,
+    error: 'outside workspace',
+  });
+  const service = createFileTreeService(dependencies);
+
+  await assert.rejects(
+    service.readWorkspaceTextFile('/etc/passwd'),
+    (error: unknown) => error instanceof AppError
+      && error.code === 'INVALID_WORKSPACE_PATH'
+      && error.statusCode === 403,
+  );
+  assert.deepEqual(readPaths, []);
+});
+
 test('readTextFile reports a directory as a client error, not a 500', async () => {
   const projectRoot = path.resolve('file-tree-test-project');
   const fileSystem = createFakeFileSystem({

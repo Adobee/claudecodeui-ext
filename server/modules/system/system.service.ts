@@ -9,6 +9,7 @@ type SystemUpdateDependencies = {
   homeDirectory: string;
   installMode: 'git' | 'npm';
   isPlatform: boolean;
+  isFork?: boolean;
   environment: NodeJS.ProcessEnv;
   runShellCommand(
     command: string,
@@ -29,6 +30,12 @@ export function createSystemUpdateService(dependencies: SystemUpdateDependencies
   return {
     /** Selects and executes the correct update workflow for this installation. */
     async updateSystem() {
+      if (dependencies.isFork) {
+        return {
+          success: false as const,
+          error: 'This fork requires a source deployment from https://github.com/Adobee/claudecodeui-ext (main). Automatic upstream npm updates are disabled to preserve local customizations.',
+        };
+      }
       const updateCommand = dependencies.isPlatform
         ? 'npm run update:platform'
         : dependencies.installMode === 'git'

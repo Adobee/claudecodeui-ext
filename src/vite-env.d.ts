@@ -6,3 +6,4 @@
  * runners such as `tsx` that do not apply Vite's define replacement.
  */
 declare const __APP_VERSION__: string;
+declare const __IS_FORK__: boolean;

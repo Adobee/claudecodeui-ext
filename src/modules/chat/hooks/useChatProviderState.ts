@@ -165,6 +165,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelsLoading, setProviderModelsLoading] = useState(true);
 
   const providerModelsRequestIdRef = useRef(0);
+  // Reject out-of-order discovery replies without discarding a newer manual refresh.
+  const codexModelsRequestIdRef = useRef(0);
   const sessionSelectionLoadRequestIdRef = useRef(0);
   const sessionModelMutationIdRef = useRef(0);
   const sessionEffortMutationIdRef = useRef(0);
@@ -188,6 +190,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   }, []);
 
   const loadProviderModels = useCallback(async () => {
+    const codexRequestId = codexModelsRequestIdRef.current;
     const requestId = providerModelsRequestIdRef.current + 1;
     providerModelsRequestIdRef.current = requestId;
     setProviderModelsLoading(true);
@@ -195,13 +198,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     try {
       const results = await Promise.all(
         PROVIDERS.map(async (p) => {
-          const response = await api.providers.models(p);
-          const body = (await response.json()) as ProviderModelsApiResponse;
-          if (!body.success || !body.data?.models) {
-            return null;
-          }
+          try {
+            const response = await api.providers.models(p);
+            const body = (await response.json()) as ProviderModelsApiResponse;
+            if (!response.ok || !body.success || !body.data?.models) {
+              return null;
+            }
 
-          return body.data.models;
+            return body.data.models;
+          } catch { return null; }
         }),
       );
 
@@ -220,7 +225,11 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         nextCatalog[p] = entry;
       });
 
-      setProviderModelCatalog(nextCatalog);
+      setProviderModelCatalog((previous) => ({
+        ...previous,
+        ...nextCatalog,
+        ...(codexModelsRequestIdRef.current !== codexRequestId && previous.codex ? { codex: previous.codex } : {}),
+      }));
     } catch (error) {
       console.error('Error loading provider models:', error);
     } finally {
@@ -233,6 +242,41 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   useEffect(() => {
     void loadProviderModels();
   }, [loadProviderModels]);
+
+  // Refresh only Codex; a failure must not clear other providers or the previous catalog.
+  const refreshCodexModels = useCallback(async (forceRefresh = false) => {
+    const requestId = ++codexModelsRequestIdRef.current;
+    try {
+      const response = await api.providers.models('codex', forceRefresh);
+      const body = (await response.json()) as ProviderModelsApiResponse;
+      if (response.ok && body.success && body.data?.models) {
+        const models = body.data.models;
+        if (codexModelsRequestIdRef.current === requestId) {
+          setProviderModelCatalog((previous) => ({ ...previous, codex: models }));
+        }
+      } else if (forceRefresh) {
+        throw new Error('Unable to sync Codex models');
+      }
+    } catch (error) {
+      // Automatic refreshes retain the catalog; the explicit action also reports failure.
+      if (forceRefresh) throw error;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (provider !== 'codex') return;
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') void refreshCodexModels();
+    };
+    const timer = window.setInterval(refreshVisible, 5 * 60_000);
+    window.addEventListener('focus', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
+  }, [provider, refreshCodexModels]);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,7 +354,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       return null;
     }
 
-    return definition.OPTIONS.find((option) => option.value === model) ?? null;
+    return [...definition.OPTIONS, ...(definition.HIDDEN_OPTIONS ?? [])]
+      .find((option) => option.value === model) ?? null;
   }, [providerModelCatalog]);
 
   const getEffortOptionsForModel = useCallback((
@@ -326,6 +371,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       return option.effort?.values ?? [];
     }
 
+    if (targetProvider === 'codex') return [];
     return toProviderEffortOptions(FALLBACK_PROVIDER_EFFORT_VALUES[targetProvider] ?? []);
   }, [getModelOption, getSupportsEffortForProvider]);
 
@@ -341,6 +387,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     model: string,
     currentEffort: string,
   ): string => {
+    // Discovery is not a license to erase a saved choice during hydration or an outage.
+    if (targetProvider === 'codex' && (!getModelOption(targetProvider, model)
+      || providerModelCatalog.codex?.SYNC?.stale)) return currentEffort || DEFAULT_EFFORT_VALUE;
     const allowedValues = getAllowedEffortValues(targetProvider, model);
     if (allowedValues.length === 0) {
       return DEFAULT_EFFORT_VALUE;
@@ -355,7 +404,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
 
     return DEFAULT_EFFORT_VALUE;
-  }, [getAllowedEffortValues]);
+  }, [getAllowedEffortValues, getModelOption, providerModelCatalog.codex]);
 
   // One reconciliation pass over every provider, mirroring the effort effect
   // below. This was four copy-pasted eleven-line effects, one per provider.
@@ -370,7 +419,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
       const storageKey = providerModelStorageKey(targetProvider);
       const currentModel = providerModels[targetProvider];
-      const nextModel = pickStoredOrCurrent(storageKey, currentModel, catalog);
+      // Missing/hidden models remain selectable in existing sessions and saved defaults.
+      if (targetProvider === 'codex' && (localStorage.getItem(storageKey) || catalog.SYNC?.stale)) continue;
+      const nextModel = targetProvider === 'codex' ? catalog.DEFAULT : pickStoredOrCurrent(storageKey, currentModel, catalog);
 
       if (nextModel !== currentModel) {
         reconciledModels[targetProvider] = nextModel;
@@ -824,6 +875,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     cyclePermissionMode,
     providerModelCatalog,
     providerModelsLoading,
+    refreshCodexModels,
     providerModelActions,
     selectProviderModel,
     selectProviderEffort,

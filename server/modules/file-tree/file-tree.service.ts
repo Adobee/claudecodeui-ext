@@ -188,6 +188,27 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     return projectRoot;
   }
 
+  async function resolveValidatedWorkspaceFile(filePath: string): Promise<string> {
+    if (!path.isAbsolute(filePath)) {
+      throw createFileTreeError(
+        'Workspace file path must be absolute',
+        400,
+        'WORKSPACE_FILE_PATH_NOT_ABSOLUTE',
+      );
+    }
+
+    const candidatePath = path.resolve(filePath);
+    const validation = await dependencies.workspace.validatePath(candidatePath);
+    if (!validation.valid) {
+      throw createFileTreeError(
+        validation.error ?? 'Path is outside the workspace root',
+        403,
+        'INVALID_WORKSPACE_PATH',
+      );
+    }
+    return validation.resolvedPath || candidatePath;
+  }
+
   /**
    * Streams one directory and keeps only the entries the tree will show.
    *
@@ -446,6 +467,32 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       }
 
       return { success: true, path: targetPath };
+    },
+
+    async readWorkspaceTextFile(filePath) {
+      const resolvedPath = await resolveValidatedWorkspaceFile(filePath);
+      try {
+        const content = await fileSystem.readTextFile(resolvedPath);
+        return { content, path: resolvedPath };
+      } catch (error) {
+        mapFileSystemError(error, {
+          ENOENT: { message: 'File not found', statusCode: 404 },
+          EACCES: { message: 'Permission denied', statusCode: 403 },
+        });
+      }
+    },
+
+    async saveWorkspaceTextFile(filePath, content) {
+      const resolvedPath = await resolveValidatedWorkspaceFile(filePath);
+      try {
+        await fileSystem.writeTextFile(resolvedPath, content);
+      } catch (error) {
+        mapFileSystemError(error, {
+          ENOENT: { message: 'File or directory not found', statusCode: 404 },
+          EACCES: { message: 'Permission denied', statusCode: 403 },
+        });
+      }
+      return { success: true, path: resolvedPath, message: 'File saved successfully' };
     },
 
     async readTextFile(projectId, filePath) {

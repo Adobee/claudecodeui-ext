@@ -256,6 +256,14 @@
     "answeredBy": "由 {{model}} 回答"
   },
   "composer": {
+    "codexFollowConfig": "跟随 Codex 配置",
+    "codexSyncStale": "同步失败，正在使用缓存或内置备用列表。",
+    "codexSyncedAt": "同步于 {{time}}",
+    "codexSyncPending": "等待模型同步",
+    "codexSyncing": "正在同步…",
+    "codexSyncNow": "立即同步模型和思考级别",
+    "codexModelMissing": "当前模型未在目录中发现，已保留你的选择。",
+    "codexModelDefault": "模型默认级别：{{effort}}。跟随配置时可能使用本地覆盖值。",
     "editing": {
       "title": "正在替换先前的消息",
       "filesNotReverted": "已修改的文件不会被还原",

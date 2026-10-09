@@ -37,6 +37,8 @@ export const CLOUDCLI_WORDMARK_FONT_FAMILY =
  * under the `tsx` test runner), where no build-time value is injected.
  */
 export const APP_VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
+/** Disable upstream self-updates for independently maintained forks. */
+export const APP_IS_FORK: boolean = typeof __IS_FORK__ === 'boolean' && __IS_FORK__;
 
 // ---------------------------
 

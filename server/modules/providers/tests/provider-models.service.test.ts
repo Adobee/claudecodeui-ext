@@ -18,6 +18,24 @@ const createModels = (value: string): ProviderModelsDefinition => ({
 
 const createCurrentActiveModel = (model: string): ProviderCurrentActiveModel => ({ model });
 
+test('native metadata wins duplicate IDs without deleting custom rows and includes discovered effort tiers', async () => {
+  const catalog = createCatalogStore();
+  catalog.createCustomProviderModel('codex', { id: 'new-model', model: 'User name' });
+  const service = createProviderModelsService({ catalog, sessions: createSessionStore(), resolveProvider: () => ({ models: {
+    getCurrentActiveModel: async () => ({ model: 'new-model' }),
+    getSupportedModels: async () => ({ DEFAULT: 'new-model', SYNC: { source: 'native', stale: false, updatedAt: 'now' },
+      OPTIONS: [{ value: 'new-model', label: 'Native name', effort: { default: 'future', values: [{ value: 'future' }] } }],
+    }),
+  } }) });
+  const result = await service.getProviderModels('codex');
+  assert.equal(result.OPTIONS.length, 1);
+  assert.equal(result.OPTIONS[0].label, 'Native name');
+  assert.equal(result.SYNC?.source, 'native');
+  assert.ok(result.EFFORT_LEVELS?.includes('future'));
+  assert.equal(catalog.listCustomProviderModels('codex').length, 1);
+  await service.createCustomModel('codex', { id: 'another', model: 'Custom', effort: { values: ['future'] } });
+});
+
 /** In-memory stand-in for the `sessions` table rows the service reads and writes. */
 const createSessionStore = (
   rows: Record<string, string | null> = {},
