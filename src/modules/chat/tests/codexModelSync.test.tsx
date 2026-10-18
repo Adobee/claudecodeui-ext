@@ -88,3 +88,23 @@ test('focus refresh failure and stale catalog never erase the current choice', a
   assert.equal(result.current.providerModelCatalog.codex?.SYNC?.stale, true);
   await act(async () => { await assert.rejects(result.current.refreshCodexModels(true), /offline/); });
 });
+
+test('a slow initial catalog cannot overwrite a completed Codex refresh or delay other providers', async () => {
+  let finishInitial!: (value: unknown) => void;
+  const initial = new Promise(resolve => { finishInitial = resolve; });
+  let codexCalls = 0;
+  const fresh = { ...catalog(), DEFAULT: 'fresh-model', OPTIONS: [{ value: 'fresh-model', label: 'Fresh' }] };
+  const response = (models: ProviderModelsDefinition) => ({ ok: true, json: async () => ({ success: true, data: { models } }) });
+  state.models.mockImplementation((provider: string) => {
+    if (provider !== 'codex') return Promise.resolve(response({ DEFAULT: provider, OPTIONS: [{ value: provider, label: provider }] }));
+    codexCalls += 1;
+    return codexCalls === 1 ? initial : Promise.resolve(response(fresh));
+  });
+  const { result } = renderHook(() => useChatProviderState({ selectedSession: null, selectedProject: null }));
+  await waitFor(() => assert.equal(result.current.providerModelCatalog.claude?.DEFAULT, 'claude'));
+  assert.equal(result.current.providerModelsLoading, true);
+  await act(async () => { await result.current.refreshCodexModels(true); });
+  await act(async () => { finishInitial(response(catalog())); });
+  await waitFor(() => assert.equal(result.current.providerModelsLoading, false));
+  assert.equal(result.current.providerModelCatalog.codex?.DEFAULT, 'fresh-model');
+});

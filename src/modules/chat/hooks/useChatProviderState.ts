@@ -196,42 +196,28 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     setProviderModelsLoading(true);
 
     try {
-      const results = await Promise.all(
+      // Each provider lands in the catalog as soon as it answers, so a slow
+      // one (OpenCode shells out to its CLI) cannot hold back the others.
+      await Promise.all(
         PROVIDERS.map(async (p) => {
           try {
             const response = await api.providers.models(p);
             const body = (await response.json()) as ProviderModelsApiResponse;
-            if (!response.ok || !body.success || !body.data?.models) {
-              return null;
+            const models = body.success ? body.data?.models : undefined;
+            if (!response.ok || !models || providerModelsRequestIdRef.current !== requestId) {
+              return;
             }
 
-            return body.data.models;
-          } catch { return null; }
+            setProviderModelCatalog((previous) => (
+              p === 'codex' && codexModelsRequestIdRef.current !== codexRequestId && previous.codex
+                ? previous
+                : { ...previous, [p]: models }
+            ));
+          } catch (error) {
+            console.error(`Error loading ${p} models:`, error);
+          }
         }),
       );
-
-      if (providerModelsRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      const nextCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>> = {};
-
-      PROVIDERS.forEach((p, i) => {
-        const entry = results[i];
-        if (!entry) {
-          return;
-        }
-
-        nextCatalog[p] = entry;
-      });
-
-      setProviderModelCatalog((previous) => ({
-        ...previous,
-        ...nextCatalog,
-        ...(codexModelsRequestIdRef.current !== codexRequestId && previous.codex ? { codex: previous.codex } : {}),
-      }));
-    } catch (error) {
-      console.error('Error loading provider models:', error);
     } finally {
       if (providerModelsRequestIdRef.current === requestId) {
         setProviderModelsLoading(false);
@@ -852,11 +838,30 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     setStoredProviderModel,
   ]);
 
+  /**
+   * Applies the server's catalog for the new flag. A remembered per-provider
+   * model that the catalog no longer lists is moved to its `DEFAULT` by the
+   * reconciliation effect above; an open session keeps its recorded model.
+   */
+  const setCustomModelsOnly = useCallback(async (
+    targetProvider: LLMProvider,
+    enabled: boolean,
+  ) => {
+    const response = await api.providers.setCustomModelsOnly(targetProvider, enabled);
+    const body = (await response.json()) as ProviderModelMutationApiResponse;
+    if (!response.ok || !body.success || !body.data?.models) {
+      throw new Error(body.error?.message || 'Unable to change this setting.');
+    }
+
+    applyProviderCatalog(targetProvider, body.data.models);
+  }, [applyProviderCatalog]);
+
   const providerModelActions = useMemo<ProviderModelActions>(() => ({
     create: createCustomModel,
     update: updateCustomModel,
     remove: removeCustomModel,
-  }), [createCustomModel, removeCustomModel, updateCustomModel]);
+    setCustomModelsOnly,
+  }), [createCustomModel, removeCustomModel, setCustomModelsOnly, updateCustomModel]);
 
   return {
     provider,
