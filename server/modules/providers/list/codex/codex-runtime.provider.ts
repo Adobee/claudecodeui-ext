@@ -475,6 +475,8 @@ async function queryCodex(
         const installed = await context.isProviderInstalled();
         const errorContent = (runError as NodeJS.ErrnoException).code === 'ENOENT' || !installed
           ? 'Codex CLI was not found on the CloudCLI server PATH. Install Codex and ensure the server PATH includes it.'
+          : /thread-store conflict:[\s\S]*already has an active writer/.test(runError.message)
+          ? 'This Codex conversation is already open in another terminal or run. Exit that terminal or wait for the other run to finish, then retry here. Closing the terminal tab alone may keep it running.'
           : runError.message;
 
         sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));

@@ -234,13 +234,13 @@ function buildShellCommand(
   }
 
   if (provider === 'codex') {
+    // The web runtime uses standalone exec. Keep the terminal's writer lifetime
+    // tied to its process instead of a shared daemon that outlives the terminal.
     if (resumeSessionId) {
-      if (os.platform() === 'win32') {
-        return otherProgram(`codex resume "${resumeSessionId}"; if ($LASTEXITCODE -ne 0) { codex }`);
-      }
-      return otherProgram(`codex resume "${resumeSessionId}" || codex`);
+      // A failed resume must not silently open a different conversation.
+      return otherProgram(`codex --no-daemon resume "${resumeSessionId}"`);
     }
-    return otherProgram('codex');
+    return otherProgram('codex --no-daemon');
   }
 
   if (provider === 'opencode') {

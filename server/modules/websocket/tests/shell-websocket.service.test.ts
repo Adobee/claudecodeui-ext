@@ -738,7 +738,7 @@ test('other shells and initial commands only get the COLORFGBG hint', () => {
 
     assert.deepEqual(
       calls.map((call) => call.command),
-      ['npx task-master init', loginCommand, 'codex', 'codex']
+      ['npx task-master init', loginCommand, 'codex --no-daemon', 'codex --no-daemon']
     );
     assert.deepEqual(
       calls.map((call) => call.env.COLORFGBG),
@@ -746,3 +746,13 @@ test('other shells and initial commands only get the COLORFGBG hint', () => {
     );
   });
 });
+
+for (const platform of ['linux', 'win32'] as const) {
+  test(`Codex resume avoids shared daemon ownership and fresh-thread fallback on ${platform}`, (t) => {
+    t.mock.method(os, 'platform', () => platform);
+    const { calls, dependencies } = spawnRecorder('existing-codex-thread');
+    launch(dependencies, { provider: 'codex', hasSession: true });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, 'codex --no-daemon resume "existing-codex-thread"');
+  });
+}

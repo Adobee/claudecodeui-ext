@@ -9,8 +9,8 @@ import type { Thread, ThreadOptions } from '@openai/codex-sdk';
 
 import { CodexProviderAuth } from '@/modules/providers/list/codex/codex-auth.provider.js';
 import { codexRuntime } from '@/modules/providers/list/codex/codex-runtime.provider.js';
-import type { NormalizedMessage, ProviderRuntimeContext } from '@/shared/types.js';
-import { createNormalizedMessage } from '@/shared/utils.js';
+import type { NormalizedMessage, ProviderRuntimeContext } from '@/shared/index.js';
+import { createNormalizedMessage } from '@/shared/index.js';
 
 const context: ProviderRuntimeContext = {
   resolveProviderSessionId: () => null,
@@ -22,6 +22,32 @@ const context: ProviderRuntimeContext = {
   },
   isProviderInstalled: async () => true,
 };
+
+test('writer conflicts explain how to resume the same conversation without starting a replacement', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const thread = {
+    id: 'locked-thread',
+    async runStreamed() {
+      return { events: (async function* () {
+        yield await Promise.reject(new Error('Codex Exec exited with code 1: Reading prompt from stdin...\nthread-store conflict: thread locked-thread already has an active writer'));
+      })() };
+    },
+  } as unknown as Thread;
+  const resume = t.mock.method(Codex.prototype, 'resumeThread', () => thread);
+  const start = t.mock.method(Codex.prototype, 'startThread', () => thread);
+  const messages: NormalizedMessage[] = [];
+  await codexRuntime.run('retry existing conversation', { sessionId: 'locked-app-session' }, {
+    isWebSocketWriter: true, send: message => { messages.push(message as NormalizedMessage); },
+  }, { ...context, resolveProviderSessionId: () => 'locked-thread' });
+  const errors = messages.filter(message => message.kind === 'error');
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0].content), /Exit that terminal/);
+  assert.doesNotMatch(String(errors[0].content), /Reading prompt from stdin/);
+  assert.equal(messages.find(message => message.kind === 'complete')?.exitCode, 1);
+  assert.equal(resume.mock.callCount(), 1);
+  assert.equal(resume.mock.calls[0].arguments[0], 'locked-thread');
+  assert.equal(start.mock.callCount(), 0);
+});
 
 test('runtime rejects unsupported effort rather than silently dropping the selection', async (t) => {
   t.mock.method(console, 'error', () => {});
