@@ -2,7 +2,7 @@
   "name": "@adobee/claudecodeui-ext",
   "private": true,
   "cloudcliFork": true,
-  "version": "1.37.5",
+  "version": "1.37.6",
   "productName": "CloudCLI",
   "description": "CloudCLI fork with native Codex model and reasoning-effort discovery",
   "type": "module",
