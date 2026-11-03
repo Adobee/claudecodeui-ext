@@ -4,7 +4,7 @@ An independently maintained fork of [CloudCLI / Claude Code UI](https://github.c
 
 ### Fork changes
 
-This deployment integrates upstream **v1.37.5** while retaining the fork changes below.
+This deployment integrates upstream **v1.37.7** while retaining the fork changes below.
 
 - Run Codex terminals with `--no-daemon` so exiting a terminal releases its conversation writer; explain concurrent-writer conflicts in web chat and never silently replace a failed resumed conversation.
 
