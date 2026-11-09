@@ -7,11 +7,9 @@ import { resetUserPreferences, writeUserPreference } from '@/shared/userSettings
 import type { ProviderModelsDefinition } from '@/shared/types';
 
 /**
- * The Codex CLI that CloudCLI bundles has no metadata for gpt-5.4, so the
- * server catalog no longer lists GPT-5.4, and any model the CLI does not know
- * runs on its fallback metadata. These tests pin the client half: a Codex
- * user's composer lands on the catalog default, both in a new browser and in
- * one that remembered GPT-5.4.
+ * A new browser adopts the discovered catalog default. This fork preserves
+ * an explicit saved model even when discovery omits it, so custom models,
+ * hidden models and existing conversations do not silently switch models.
  */
 
 const CODEX_CATALOG: ProviderModelsDefinition = {
@@ -82,7 +80,7 @@ test('a new browser starts Codex chats on the catalog default before the catalog
   assert.equal(result.current.currentProviderModel, 'gpt-5.6-sol');
 });
 
-test('a browser that remembered GPT-5.4 moves to the catalog default once the catalog loads', async () => {
+test('a browser preserves its explicitly saved model when the catalog omits it', async () => {
   localStorage.setItem('codex-model', 'gpt-5.4');
   codexCatalog = CODEX_CATALOG;
 
@@ -90,7 +88,16 @@ test('a browser that remembered GPT-5.4 moves to the catalog default once the ca
 
   await waitFor(() => {
     assert.equal(result.current.providerModelCatalog.codex?.DEFAULT, 'gpt-5.6-sol');
-    assert.equal(result.current.currentProviderModel, 'gpt-5.6-sol');
+    assert.equal(result.current.currentProviderModel, 'gpt-5.4');
   });
-  assert.equal(localStorage.getItem('codex-model'), 'gpt-5.6-sol');
+  assert.equal(localStorage.getItem('codex-model'), 'gpt-5.4');
+});
+
+test('a new browser adopts the discovered default after the catalog loads', async () => {
+  codexCatalog = { ...CODEX_CATALOG, DEFAULT: 'gpt-6.1-sol' };
+  const { result } = await renderCodexProviderState();
+  await waitFor(() => {
+    assert.equal(result.current.currentProviderModel, 'gpt-6.1-sol');
+  });
+  assert.equal(localStorage.getItem('codex-model'), 'gpt-6.1-sol');
 });
