@@ -4,7 +4,7 @@ An independently maintained fork of [CloudCLI / Claude Code UI](https://github.c
 
 ### Fork changes
 
-This deployment integrates upstream **v1.37.7** while retaining the fork changes below.
+This deployment integrates upstream **v1.37.8** while retaining the fork changes below.
 
 - Run Codex terminals with `--no-daemon` so exiting a terminal releases its conversation writer; explain concurrent-writer conflicts in web chat and never silently replace a failed resumed conversation.
 
@@ -216,6 +216,7 @@ CloudCLI has a plugin system that lets you add custom tabs with their own fronte
 | **[Token Cost Calculator](https://github.com/NightmareAway/cloudcli-plugin-token-cost-calculator)** | Calculate API costs from model prices and token usage, with preset model pricing support |
 | **[Task Queue](https://github.com/TadMSTR/cloudcli-plugin-task-queue)** | Task queue dashboard to view, filter, and launch agent tasks |
 | **[GitHub Issues Board](https://github.com/szmidtpiotr/claude-github-issue)** | Kanban board for GitHub Issues with bidirectional TaskMaster sync and /github-task CLI skill auto-install |
+| **[ccx](https://github.com/AaronWong1999/cloudcli-plugin-ccx)** | Shows Claude and Codex usage and hands the open session to the other agent with its conversation history (macOS, needs ccx) |
 
 ### Build Your Own
 

@@ -23,11 +23,46 @@ import {
  * never succeeded. SYNC explicitly labels this catalog as stale, not live.
  */
 export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
+  // This emergency catalog tracks the SDK-compatible CLI metadata. Normal
+  // chats and live discovery use system PATH Codex; discovery replaces these
+  // entries with the installed CLI's current models and reasoning levels.
   OPTIONS: [
     {
       value: 'gpt-6-astra',
       label: 'GPT-6 Astra',
       description: 'Our most capable model for complex, demanding work.',
+      effort: {
+        default: 'low',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+          { value: 'ultra' },
+        ],
+      },
+    },
+    {
+      value: 'gpt-6.1-sol',
+      label: 'GPT-6.1 Sol',
+      description: 'Latest workhorse model for coding and everyday work.',
+      effort: {
+        default: 'low',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+          { value: 'ultra' },
+        ],
+      },
+    },
+    {
+      value: 'gpt-6.1-terra',
+      label: 'GPT-6.1 Terra',
+      description: 'Balanced agentic coding model for everyday work.',
       effort: {
         default: 'low',
         values: [
@@ -122,24 +157,6 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
       value: 'gpt-5.5',
       label: 'GPT-5.5',
       description: 'Frontier model for complex coding, research, and real-world work.',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4',
-      label: 'GPT-5.4',
-      description: 'Strong model for everyday coding.',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4-mini',
-      label: 'GPT-5.4 Mini',
-      description: 'Small, fast, and cost-efficient model for simpler coding tasks.',
       effort: {
         default: 'medium',
         values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
